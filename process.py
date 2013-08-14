@@ -372,7 +372,7 @@ def chi(A, b):
 
 class InjSearch(object):
     
-    def __init__(self, detector, psr, nfreq, pdif, nd, rangeparam=[], dinjrange=[1., 1.1], dsrchrange=[1., 1.1], hinjrange=[1.0E-27, 1.0E-23], filesize=100):
+    def __init__(self, detector, psr, nfreq, pdif, nd, sweep=101, rangeparam=[], dinjrange=[1., 1.01], dsrchrange=[1., 1.01], hinjrange=[1.0E-27, 1.0E-23], filesize=100):
         # system info
         self.detector = detector
         self.psr = psr
@@ -411,7 +411,7 @@ class InjSearch(object):
         self.setranges(rangeparam)
         
         # search
-        self.dsrch = np.linspace(dsrchrange[0], dsrchrange[1], 201)
+        self.dsrch = np.linspace(dsrchrange[0], dsrchrange[1], sweep)
         
         
         
