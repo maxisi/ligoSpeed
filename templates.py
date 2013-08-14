@@ -686,6 +686,13 @@ class Signal(object):
         self.response = Response(psr, detector, t, kind, loadvectors=True)
         # compute roemer delay
         self.getroemer(self, self.response.obs.t)
+        
+        # parameters
+        self.psi = 0
+        self.iota = 0
+        self.phi0 = 0
+        
+        self.design_matrix_phase()
             
             
     # Amplitude
@@ -723,30 +730,30 @@ class Signal(object):
     def design_matrix_amplitude(self, pol_angle, incl_angle, h_scalar=0):        
         
         if self.kind=='Sid':
-            # no need to get antenna patterns
             # build basis set:
             th = pd.Series(sd.w * np.array(self.t), index=self.t)
             
             basis = [th.map(np.cos), (2.*th).map(np.cos), th.map(np.sin), (2.*th).map(np.sin)]
             
             # construct matrix
-            dm = pd.concat(basis, axis=1, keys=['cos1', 'cos2', 'sin1', 'sin2'])
-            dm['cnst']=1
+            self.dmA = pd.concat(basis, axis=1, keys=['cos1', 'cos2', 'sin1', 'sin2'])
+            self.dmA['cnst']=1
 
         else:
+            print 'creating DMa'
             # make copy of response
             response_local = copy.copy(self.response)
             # get antenna patterns:
             response_local.create(psi=pol_angle, savefile=False)
-            
+        
             # get amplitude info
             info = self.signalinfo(0, iota=incl_angle, h_s=h_scalar)
-            
+        
             # construct matrix
             dmDict = {pol: getattr(response_local, pol) * info['h'][pol] / 2. for pol in self.basis}
-            dm = pd.DataFrame(dmDict).dropna(axis=1) # DF cols: comp. names, index: t.
-        
-        return dm
+            self.dmA = pd.DataFrame(dmDict).dropna(axis=1) # DF cols: comp. names, index: t.
+            self.psi = pol_angle
+            self.iota = incl_angle
     
     
     # Phase
@@ -804,55 +811,63 @@ class Signal(object):
         
         self.roemer = rn/c
     
-    def design_matrix_phase(self, phi0=0.):
-        
+    def design_matrix_phase(self):
+
+        print 'creating dmP'
         # time
         t = self.response.obs.t
         t2 = t**2
-        
+    
         # get frequency and its derivatives
         f = {n : self.response.src.param['F' + str(n)] for n in range(3)}
-        
+    
         # get roemer and multiples
         dR = {n : self.roemer ** n for n in range(1,4)}
-        
+    
         # form basis vectors
         d3 = dR[3] * f[2] /6.
         d2 = dR[2] * (f[1] + f[2]*t)/2.
         d1 = dR[1] * (f[0] + f[1]*t + f[2]*t**2. /2.)
-        d0 = phi0/(4.*np.pi) - d1 - d2 - d3
-                
-        dm = 4. * np.pi * pd.DataFrame({'d3':d3, 'd2':d2, 'd1':d1, 'd0':d0}, index=t)
-                
-        return dm
-        
+        d0 = - d1 - d2 - d3
             
-    def simulate(self, delta, pol_angle, incl_angle, phase=0, h_scalar=0, pdif_scalar=0):
+        self.dmP = 4. * np.pi * pd.DataFrame({'d3':d3, 'd2':d2, 'd1':d1, 'd0':d0}, index=t)
+      
+        
+    def phase_ev(self, delta, phi0):
+        d = pd.Series({'d' + str(n) : delta ** n for n in range(4)})
+
+        dmP = self.dmP.mul(d)               # obtain phase design matrix
+        dmP['d0'] += 2. * phi0              # add phi0
+        phi_t = dmP.sum(axis='columns')     # sum columns to obtain evolution
+        return phi_t
+           
+    def simulate(self, delta, pol_angle, incl_angle, phase=0, h_scalar=0, pdif_scalar=0, dontadd=False):
         '''
         Simulates a signal based given polarization and inclination angles.
         Includes phase evolution: delta = c/c_g
         Warning: Does not scale output signal, need to multiply output by h0.
         '''
-    
-        if self.kind=='Sid':
-            print 'Cannot simulate "Sid". Change Signal.kind'
+        
+        # get amplitude design matrix
+        if self.psi==pol_angle and self.iota==incl_angle and 'dmA' in dir(self):
+            dm = self.dmA
         else:
-            # form amplitude design matrix
-            dm = self.design_matrix_amplitude(pol_angle, incl_angle, h_scalar=h_scalar)
+            self.design_matrix_amplitude(pol_angle, incl_angle, h_scalar=h_scalar)
+            dm = self.dmA
 
-            # get phase evolution
-            d = pd.Series({'d' + str(n) : delta ** n for n in range(4)})
-            phi_t = self.design_matrix_phase(phi0=phase).mul(d).sum(axis='columns')
-            
-            # compute exp[i*(phi + pdif)] (apply),
-            # multiply amplitudes and phases (mul)
-            raisePhi = lambda x: np.exp(1j*x)
-            
-            s1 = dm[self.basis[0]].mul(phi_t.map(raisePhi))                 # plus
-            
-            s2 = dm[self.basis[1]].mul((phi_t + self.pdif).map(raisePhi))   # cross
-
-            # add columns to form signal            
-            s = s1 + s2
-
-            return s
+        # construct phase evolution
+        phi_t = self.phase_ev(delta, phase)
+        
+        # compute phase factor
+        phase_factor = np.exp(1j*phi_t)
+        
+        # multiply amplitudes with corresponding phases (mul)
+        s1 = dm[self.basis[0]] * phase_factor                            # plus
+        
+        s2 = dm[self.basis[1]]* phase_factor * np.exp(1j*self.pdif)      # cross
+        
+        if dontadd:
+            return pd.DataFrame({'pl': s1, 'cr': s2})
+        else:
+            # add columns to form signal
+            return s1 + s2

@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import random
 import math
+import cmath
+from scipy import signal
 
 import templates
 import sidereal as sd
@@ -225,28 +227,33 @@ class Background(object):
             self.create()
 
 
-
 class Results(object):
     '''
     Holds search results and contains methods to save them.
     '''
-    def __init__(self, detector, psr, methods=[], hinj=[], pdif_s=None, kind=None, pdif=None):
+    def __init__(self, detector, psr, dinj=[], hinj=[], pdif_s=None, kind='GR', pdif=None):
         # system
         self.detector = detector
         self.psr = psr
         
         # search
-        self.methods = methods
+        self.methods = ['GR']
         
         # injection
+        self.dinj = dinj
         self.hinj = hinj
+        
         self.kind = kind
+        
         self.pdif = pdif
         self.pdif_s = pdif_s
         
+        # parameters
+        self.parameters = ['h', 's', 'drec', 'sphi']
+        
         # containers
-        self.h = pd.DataFrame(columns = methods, index=range(len(hinj)))
-        self.s = pd.DataFrame(columns = methods, index=range(len(hinj)))
+        for p in self.parameters:
+            setattr(self, p, pd.DataFrame(columns = dinj, index=range(len(hinj))) )
         
         # stats
         statkinds = [
@@ -259,7 +266,7 @@ class Results(object):
                     'min inj det'
                     ]
                     
-        self.stats = pd.DataFrame(index=statkinds, columns = methods)
+        self.stats = pd.DataFrame(index=statkinds, columns = dinj)
         
         # saving
         self.dir = paths.results + self.detector + '/' + self.psr + '/' 
@@ -282,9 +289,12 @@ class Results(object):
             
         try:
             f = pd.HDFStore(self.path, 'w')
-            f['h'] = self.h
-            f['s'] = self.s
+            
+            for p in self.parameters:
+                f[p] = getattr(self, p)
+
             f['stats']= self.stats
+            
         finally:
             f.close()
             
@@ -294,10 +304,11 @@ class Results(object):
     def load(self):
         try:
             f = pd.HDFStore(self.path, 'r')
-            self.h = f['h']
+            for p in self.parameters:
+                setattr(self, p, f[p])
             self.s = f['s']
         finally:
-            f.close()            
+            f.close() 
 
 
     def plots(self, pltType, extra_name=''):
@@ -335,16 +346,39 @@ class Results(object):
             self.stats[m]['h rec noise'] = psrplot.noise_line(self.h[m])(1)
             self.stats[m]['h rec slope'] = psrplot.lin_fit(self.h[m])(1)
             self.stats[m]['h rec inter'] = psrplot.fit_intersect_noise(self.h[m])
-                    
+
+
+def chi(A, b):
+    # chi2 minimization through svd decomposition
+    svd = np.linalg.svd(A, full_matrices=False)
+
+    U = pd.DataFrame(svd[0], columns=A.columns, index=A.index)
+    W = pd.DataFrame(np.diag(1./svd[1]), index=A.columns, columns=A.columns)
+    V = pd.DataFrame(svd[2], index=A.columns, columns=A.columns)
+
+    cov = V.T.dot(W**2).dot(V)  # covariance matrix
+
+    VtW = V.T.dot(W)
+    # need to make U complex before dotting with b
+    Utb = (U + 0j).mul(b, axis=0).sum(axis=0)
+    a = VtW.dot(Utb.T)          # results
+    
+    return a, cov
+
+
+# def correlation(template, data, ds, ps, psi=[], iota=[]):
+
+
 
 class InjSearch(object):
     
-    def __init__(self, detector, psr, nfreq, injkind, pdif, ninj, frange=[1.0e-7, 1.0e-5], hinjrange=[1.0E-27, 1.0E-24], filesize=100):
+    def __init__(self, detector, psr, nfreq, pdif, ninjh, nd, rangeparam=[], dinjrange=[.7, 1.3], dsrchrange=[.5, 1.5], hinjrange=[1.0E-27, 1.0E-23], filesize=100):
         # system info
         self.detector = detector
         self.psr = psr
                 
         # data info
+        frange = [1.0e-7, 1.0e-5]
         self.freq = np.linspace(frange[0], frange[1], nfreq)
         print 'Getting background.'
         self.background = Background(detector, psr, self.freq, filesize)
@@ -353,41 +387,65 @@ class InjSearch(object):
         self.t = self.background.seed.finehet.index
         
         sigma = Sigma(self.detector, self.psr, self.background.seed.finehet)
-        self.sg = 2 * sigma.std
+        self.sg = sigma.std
         
-        # injection info
-        inj = np.linspace(hinjrange[0], hinjrange[1], ninj)
-        injLocations = [int(x) for x in np.linspace(0, nfreq, ninj, endpoint=False)]
+        # injection locations
+        injLocations = [int(x) for x in np.linspace(0, nfreq, ninjh, endpoint=False)]
+        
+        # injection strengths
+        h = np.linspace(hinjrange[0], hinjrange[1], ninjh)
         self.hinj = np.zeros(nfreq)
-        self.hinj[injLocations] = inj 
-               
+        self.hinj[injLocations] = h
+        
+        # injection deltas
+        self.dinj = np.linspace(dinjrange[0], dinjrange[1], nd)
+        
+        # injection kind   
         self.pdif = pdif
-        self.injkind = injkind
-        self.injection = templates.Signal(detector, psr, injkind, pdif, self.t)
+        self.injkind = 'GR'
         
+        # set up injection
+        self.injection = templates.Signal(detector, psr, pdif, self.t)
+        self.setranges(rangeparam)
+        
+        # search
+        self.dsrch = np.linspace(dsrchrange[0], dsrchrange[1], 201)
+        
+        
+        
+    def setranges(self, rangeparam):
         src = self.injection.response.src
-
-        # range info
-        self.pol_range = [
-                        src.param['POL'],# - src.param['POL error'],
-                        src.param['POL'] #+ src.param['POL error']
-                        ]
-
-        self.inc_range = [
-                        src.param['INC'], #- src.param['INC error'],
-                        src.param['INC'] #+ src.param['INC error']
-                        ]
+        if 'psi' in rangeparam or rangeparam=='all':
+            self.pol_range = [
+                            src.param['POL'] - src.param['POL error'],
+                            src.param['POL'] + src.param['POL error']
+                            ]
+        else:
+            self.pol_range = [src.param['POL'], src.param['POL']]
         
+        if 'iota' in rangeparam or rangeparam=='all':   
+            self.inc_range = [
+                            src.param['INC'] - src.param['INC error'],
+                            src.param['INC'] + src.param['INC error']
+                            ]
+        else:
+            self.inc_range = [src.param['INC'], src.param['INC']]
 
-    def analyze(self, methods):
+        if 'phi0' in rangeparam or rangeparam=='all':                     
+            self.phi0_range = [0., np.pi/2.]
+        else:
+            self.phi0_range = [0., 0.]
+    
+    
+    def analyze(self, chisrch=False):
 
         print 'Analyzing %d files.' % self.background.nsets
     
         # search info
-        search = {m: templates.Signal(self.detector, self.psr, m, 0, self.t) for m in methods}
+        search = templates.Signal(self.detector, self.psr, self.pdif, self.t)
 
         # results
-        self.results = Results(self.detector, self.psr, methods=methods, hinj=self.hinj, kind=self.injkind, pdif=self.pdif)
+        self.results = Results(self.detector, self.psr, dinj=self.dinj, hinj=self.hinj, pdif=self.pdif)
             
         # loop over files
         for n in range(self.background.nsets):
@@ -405,53 +463,48 @@ class InjSearch(object):
                 
                 print '%i/%i ' % (inst_number, len(self.hinj)-1),
                 
-                # select psi, iota and phi0
+                # select search psi, iota and phi0
                 psi  = random.uniform(self.pol_range[0], self.pol_range[1])
                 iota = random.uniform(self.inc_range[0], self.inc_range[1])
-
+                
+                # select injection psi and iota
                 psi_inj  = random.uniform(self.pol_range[0], self.pol_range[1])
-                iota_inj = random.uniform(self.inc_range[0], self.inc_range[1])
-                phi0 = 0.#random.uniform(0., np.pi/2.)                    
+                iota_inj = random.uniform(self.inc_range[0], self.inc_range[1])  
+                phi0 = random.uniform(self.phi0_range[0], self.phi0_range[1])
+                
+                # phi0 range to sweep over        
+#                 phi0_srch = np.linspace(self.phi0_range[0], self.phi0_range[1], 5)
+                
+                # select instantiation
+                d = data[inst]
 
-                print psi, iota, phi0
-                # loop over search methods
-                # note: important that this follows inst loop to get same psi and iota
-                for m in methods:
-                    
-                    d = data[inst]
-                    
-                    # inject if necessary
-                    h = self.hinj[inst_number]
-                    if h != 0:
-                        print self.injection.kind + str(self.injection.pdif),
-                        print 'I! %(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
-                        d += h * self.injection.simulate(psi_inj, iota_inj, phase=phi0)
-                    
-                    # get design matrix
-                    designMatrix = search[m].design_matrix(psi, iota)
-                    
-                    A = designMatrix.div(self.sg, axis=0)
+                h = self.hinj[inst_number]
 
-                    b = d / self.sg
+                if h != 0:
+                
+                    # injection
+                    for d_inj in self.dinj:
                     
-                    # SVD DECOMPOSITION
-                    svd = np.linalg.svd(A, full_matrices=False)
-                    
-                    U = pd.DataFrame(svd[0], columns=A.columns, index=A.index)
-                    W = pd.DataFrame(np.diag(1./svd[1]), index=A.columns, columns=A.columns)
-                    V = pd.DataFrame(svd[2], index=A.columns, columns=A.columns)
-                    
-                    cov = V.T.dot(W**2).dot(V)  # covariance matrix
-                    
-                    VtW = V.T.dot(W)
-                    # need to make U complex before dotting with b
-                    Utb = (U + 0j).mul(b, axis=0).sum(axis=0)
-                    a = VtW.dot(Utb.T)          # results
+                        print 'I! d = %(d_inj)f\t%(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
+                        print 'no noise!'
+                        
+                        d = h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
+                        
+                        # search
+                        res = pd.Series(index=self.dsrch)
+                        for delta in self.dsrch:
+                        
+                            s = search.simulate(delta, psi_inj, iota_inj, phase=phi0)  
+                            
+                            res[delta] = abs(np.vdot(d, s))
+                            
+                        self.results.drec[d_inj][inst_number] = res.index[np.argmax(res)]
+# 
 
-                    # average h0
-                    self.results.h[m][inst_number] = (abs(a).sum()) / len(a)
-                    # significance
-                    self.results.s[m][inst_number] = abs(np.dot(a.conj(), np.linalg.solve(cov, a)))
+
+                exit()
+                        
+
 
         ## Save
         self.results.save()
