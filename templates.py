@@ -4,6 +4,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 from urllib2 import urlopen
 from collections import namedtuple
+import csv
 
 import sys, os
 from sys import argv, exit
