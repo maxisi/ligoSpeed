@@ -256,17 +256,17 @@ class Results(object):
             setattr(self, p, pd.DataFrame(columns = dinj, index = hinj)
         
         # stats
-        statkinds = [
-                    'lin s slope',
-                    'lin s noise',
-                    'lin s inter',
-                    'h rec slope',
-                    'h rec noise',
-                    'h rec inter',
-                    'min inj det'
-                    ]
-                    
-        self.stats = pd.DataFrame(index=statkinds, columns = dinj)
+#         statkinds = [
+#                     'lin s slope',
+#                     'lin s noise',
+#                     'lin s inter',
+#                     'h rec slope',
+#                     'h rec noise',
+#                     'h rec inter',
+#                     'min inj det'
+#                     ]
+#                     
+#         self.stats = pd.DataFrame(index=statkinds, columns = dinj)
         
         # saving
         self.dir = paths.results + self.detector + '/' + self.psr + '/' 
