@@ -253,7 +253,7 @@ class Results(object):
         
         # containers
         for p in self.parameters:
-            setattr(self, p, pd.DataFrame(columns = dinj, index=range(len(hinj))) )
+            setattr(self, p, pd.DataFrame(columns = dinj, index = hinj)
         
         # stats
         statkinds = [
@@ -280,7 +280,7 @@ class Results(object):
         self.h.index = self.hinj
         self.s.index = self.hinj
         
-        self.getstats()
+#         self.getstats()
        
         try:
             os.makedirs(self.dir)
@@ -372,7 +372,7 @@ def chi(A, b):
 
 class InjSearch(object):
     
-    def __init__(self, detector, psr, nfreq, pdif, ninjh, nd, rangeparam=[], dinjrange=[.7, 1.3], dsrchrange=[.5, 1.5], hinjrange=[1.0E-27, 1.0E-23], filesize=100):
+    def __init__(self, detector, psr, nfreq, pdif, nd, rangeparam=[], dinjrange=[1., 1.1], dsrchrange=[1., 1.1], hinjrange=[1.0E-27, 1.0E-23], filesize=100):
         # system info
         self.detector = detector
         self.psr = psr
@@ -389,13 +389,15 @@ class InjSearch(object):
         sigma = Sigma(self.detector, self.psr, self.background.seed.finehet)
         self.sg = sigma.std
         
-        # injection locations
-        injLocations = [int(x) for x in np.linspace(0, nfreq, ninjh, endpoint=False)]
+        # injection locations (uncomment if nfreq!=ninj)
+        #injLocations = [int(x) for x in np.linspace(0, nfreq, ninjh, endpoint=False)]
         
         # injection strengths
-        h = np.linspace(hinjrange[0], hinjrange[1], ninjh)
-        self.hinj = np.zeros(nfreq)
-        self.hinj[injLocations] = h
+        # (there's no point in searching for speed when there's no injection,
+        # so make as many injections as instantiations)
+        self.hinj = np.linspace(hinjrange[0], hinjrange[1], nfreq)
+        #self.hinj = np.zeros(nfreq)
+        #self.hinj[injLocations] = h
         
         # injection deltas
         self.dinj = np.linspace(dinjrange[0], dinjrange[1], nd)
@@ -415,6 +417,13 @@ class InjSearch(object):
         
     def setranges(self, rangeparam):
         src = self.injection.response.src
+        
+        if rangeparam ==[]:
+            print 'All parameters fixed.'
+        else:
+            print 'Ranging over: ' + str(rangeparam)
+        
+        
         if 'psi' in rangeparam or rangeparam=='all':
             self.pol_range = [
                             src.param['POL'] - src.param['POL error'],
@@ -482,13 +491,13 @@ class InjSearch(object):
 
                 if h != 0:
                 
-                    # injection
                     for d_inj in self.dinj:
                     
                         print 'I! d = %(d_inj)f\t%(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
-                        print 'no noise!'
+                        # print 'no noise!'
                         
-                        d = h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
+                        # inject signal
+                        d += h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
                         
                         # search
                         res = pd.Series(index=self.dsrch)
@@ -498,13 +507,7 @@ class InjSearch(object):
                             
                             res[delta] = abs(np.vdot(d, s))
                             
-                        self.results.drec[d_inj][inst_number] = res.index[np.argmax(res)]
-# 
-
-
-                exit()
-                        
-
+                        self.results.drec[d_inj][h] = res.index[np.argmax(res)]
 
         ## Save
         self.results.save()
