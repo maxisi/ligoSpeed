@@ -253,7 +253,7 @@ class Results(object):
         
         # containers
         for p in self.parameters:
-            setattr(self, p, pd.DataFrame(columns = dinj, index = hinj)
+            setattr(self, p, pd.DataFrame(columns = dinj, index = hinj))
         
         # stats
 #         statkinds = [
