@@ -278,8 +278,6 @@ class Results(object):
             
             for p in self.parameters:
                 f[p] = getattr(self, p)
-
-            f['stats']= self.stats
             
         finally:
             f.close()
