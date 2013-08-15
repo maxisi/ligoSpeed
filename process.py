@@ -467,7 +467,6 @@ class InjSearch(object):
                     for d_inj in self.dinj:
                     
                         print 'I! d = %(d_inj)f\t%(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
-                        # print 'no noise!'
                         
                         # inject signal
                         d += h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
@@ -491,7 +490,7 @@ class Distribution(InjSearch):
     def __init__(self):
         super(Distribution, self).__init__('H1', 'J0534+2200', 10, 0., 50)
         
-    def analysis(self):
+    def analyze(self):
 
         print 'Getting matched filter distribution.'
     
@@ -499,7 +498,7 @@ class Distribution(InjSearch):
         search = templates.Signal(self.detector, self.psr, self.pdif, self.t)
 
         # results
-        self.results = pf.DataFrame(columns=self.dinj, index=self.dsrch)
+        self.results = pd.DataFrame(columns=self.dinj, index=self.dsrch)
             
         # loop over files
         for n in range(self.background.nsets):
@@ -548,6 +547,12 @@ class Distribution(InjSearch):
                             s = search.simulate(delta, psi_inj, iota_inj, phase=phi0)  
                             
                             self.results[d_inj][delta] = abs(np.vdot(d, s))
+                            
+                # save
+                try:
+                   self.results.to_pickle('files/analysis/results/distribution')
+                except:
+                    print "Couldn't save!"
     
 
 ## SEARCH
