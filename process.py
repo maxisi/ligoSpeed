@@ -254,20 +254,7 @@ class Results(object):
         # containers
         for p in self.parameters:
             setattr(self, p, pd.DataFrame(columns = dinj, index = hinj))
-        
-        # stats
-#         statkinds = [
-#                     'lin s slope',
-#                     'lin s noise',
-#                     'lin s inter',
-#                     'h rec slope',
-#                     'h rec noise',
-#                     'h rec inter',
-#                     'min inj det'
-#                     ]
-#                     
-#         self.stats = pd.DataFrame(index=statkinds, columns = dinj)
-        
+                
         # saving
         self.dir = paths.results + self.detector + '/' + self.psr + '/' 
         self.name = self.psr + '_' + self.detector + '_' + self.kind + '_' + sd.phase2(pdif)
@@ -279,9 +266,7 @@ class Results(object):
         
         self.h.index = self.hinj
         self.s.index = self.hinj
-        
-#         self.getstats()
-       
+               
         try:
             os.makedirs(self.dir)
         except OSError:
@@ -386,15 +371,8 @@ class InjSearch(object):
         sigma = Sigma(self.detector, self.psr, self.background.seed.finehet)
         self.sg = sigma.std
         
-        # injection locations (uncomment if nfreq!=ninj)
-        #injLocations = [int(x) for x in np.linspace(0, nfreq, ninjh, endpoint=False)]
-        
         # injection strengths
-        # (there's no point in searching for speed when there's no injection,
-        # so make as many injections as instantiations)
         self.hinj = np.linspace(hinjrange[0], hinjrange[1], nfreq)
-        #self.hinj = np.zeros(nfreq)
-        #self.hinj[injLocations] = h
         
         # injection deltas
         self.dinj = np.linspace(dinjrange[0], dinjrange[1], nd)
@@ -409,7 +387,6 @@ class InjSearch(object):
         
         # search
         self.dsrch = np.linspace(dsrchrange[0], dsrchrange[1], sweep)
-        
         
         
     def setranges(self, rangeparam):
@@ -443,7 +420,7 @@ class InjSearch(object):
             self.phi0_range = [0., 0.]
     
     
-    def analyze(self, chisrch=False):
+    def analyze(self):
 
         print 'Analyzing %d files.' % self.background.nsets
     
@@ -509,6 +486,70 @@ class InjSearch(object):
         ## Save
         self.results.save()
 
+
+class Distribution(InjSearch):
+    
+    def __init__(self):
+        super(Distribution, self).__init__('H1', 'J0534+2200', 10, 0., 50)
+        
+    def analysis(self):
+
+        print 'Getting matched filter distribution.'
+    
+        # search info
+        search = templates.Signal(self.detector, self.psr, self.pdif, self.t)
+
+        # results
+        self.results = pf.DataFrame(columns=self.dinj, index=self.dsrch)
+            
+        # loop over files
+        for n in range(self.background.nsets):
+            
+            try:
+                back_file = pd.HDFStore(self.background.path + str(n), 'r')
+                data = back_file[self.psr]
+            finally:
+                back_file.close()
+                
+            # loop over instantiations
+            for inst in data.columns:
+                
+                inst_number = int(n*self.background.filesize + inst)
+                
+                print '%i/%i ' % (inst_number, len(self.hinj)-1),
+                
+                
+                # select injection psi and iota
+                psi_inj  = random.uniform(self.pol_range[0], self.pol_range[1])
+                iota_inj = random.uniform(self.inc_range[0], self.inc_range[1])  
+                phi0 = random.uniform(self.phi0_range[0], self.phi0_range[1])
+                
+                # phi0 range to sweep over        
+#                 phi0_srch = np.linspace(self.phi0_range[0], self.phi0_range[1], 5)
+                
+                # select instantiation
+                d = data[inst]
+
+                h = self.hinj[inst_number]
+
+                if h == max(self.hinj):
+                
+                    for d_inj in self.dinj:
+                    
+                        print 'I! d = %(d_inj)f\t%(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
+                        # print 'no noise!'
+                        
+                        # inject signal
+                        d += h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
+                        
+                        # search
+                        res = pd.Series(index=self.dsrch)
+                        for delta in self.dsrch:
+                        
+                            s = search.simulate(delta, psi_inj, iota_inj, phase=phi0)  
+                            
+                            self.results[d_inj][delta] = abs(np.vdot(d, s))
+    
 
 ## SEARCH
 class Sigma(object):
