@@ -136,8 +136,9 @@ class Data(object):
                 self.finehet = d[self.psr]
             except KeyError:
                 # file is empty or is corrupted
+                d.close()
                 self.imp()
-            finally:
+            else:
                 d.close()
         
         except IOError:
