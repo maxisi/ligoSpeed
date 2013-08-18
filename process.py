@@ -10,6 +10,7 @@ import random
 import math
 import cmath
 from scipy import signal
+import random
 
 import templates
 import sidereal as sd
@@ -232,7 +233,7 @@ class Results(object):
     '''
     Holds search results and contains methods to save them.
     '''
-    def __init__(self, detector, psr, dinj=[], hinj=[], pdif_s=None, kind='GR', pdif=None):
+    def __init__(self, detector, psr, dinj=[], hinj=[], pdif='p', extra_name=''):
         # system
         self.detector = detector
         self.psr = psr
@@ -244,134 +245,138 @@ class Results(object):
         self.dinj = dinj
         self.hinj = hinj
         
-        self.kind = kind
+        self.kind = 'GR'
         
         self.pdif = pdif
-        self.pdif_s = pdif_s
-        
-        # parameters
-        self.parameters = ['h', 's', 'drec', 'sphi']
         
         # containers
-        for p in self.parameters:
-            setattr(self, p, pd.DataFrame(columns = dinj, index = hinj))
+        self.delta =  pd.DataFrame(columns = dinj, index = hinj)
                 
         # saving
+        self.extra_name = extra_name
         self.dir = paths.results + self.detector + '/' + self.psr + '/' 
-        self.name = self.psr + '_' + self.detector + '_' + self.kind + '_' + sd.phase2(pdif)
+        self.name = 'drec_' + self.psr + '_' + self.detector + '_' + sd.phase2(pdif) + '_' + extra_name
         self.path = self.dir + self.name
         
         self.issaved =  False
         
     def save(self):
         
-        self.h.index = self.hinj
-        self.s.index = self.hinj
-               
         try:
             os.makedirs(self.dir)
         except OSError:
             pass
-            
-        try:
-            f = pd.HDFStore(self.path, 'w')
-            
-            for p in self.parameters:
-                f[p] = getattr(self, p)
-            
-        finally:
-            f.close()
-            
-        self.issaved = True
         
+        try:
+            os.remove(self.path)
+        except:
+            pass
+                
+        try:
+            self.delta.to_pickle(self.path)
+            print '\nResults saved to:'
+            print self.path
+            self.issaved = True
+        except IOError:
+            print 'Failed to save!'
+            print self.path 
+            
         
     def load(self):
-        try:
-            f = pd.HDFStore(self.path, 'r')
-            for p in self.parameters:
-                setattr(self, p, f[p])
-            self.s = f['s']
-        finally:
-            f.close() 
+        self.delta = pd.read_pickle(self.path)
 
 
-    def plots(self, pltType, extra_name=''):
+    def plot(self, kind='2D', extra_name='', save=True, style='-', lgloc=4):
         
-        header = self.kind + sd.phase2(self.pdif) + ' injections on ' + self.detector + ' data for ' + self.psr + ' ' + extra_name
-          
-        getattr(psrplot, pltType)(hinj=self.h.index, hrec=self.h, s=self.s, methods=self.methods)
+        header = 'Recovered $\delta=c/c_{gw}$ for different injection strengths ' + extra_name
+        
+        results = self.delta
+        h0 = results.index
+        dinj = results.columns.tolist()        
+
+        if kind  == '2D':
+
+            # plot 2D
+            plt.figure()
+
+            for h in h0:
+                plt.plot(dinj, results.ix[h], style, label=str(h))
+    
+
+            plt.xlim(min(dinj), max(dinj))
+            plt.ylim(results.min().min()-.001, results.max().max()+.001)
+    
+            plt.legend(numpoints=1,ncol=2, loc=lgloc)
+
+            plt.ylabel('Recovered $\delta$')
+            plt.xlabel('Injected $\delta$')
+
+
+        elif kind == '3D':
+    
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+
+            for h in h0:
+                x = [h] * len(dinj)
+                y = dinj
+                z = results.ix[h].tolist()
+
+                ax.scatter(x, y, z)
+
+                xLabel = ax.set_xlabel('$h_0$')
+                yLabel = ax.set_ylabel('Injected $\delta$')
+                zLabel = ax.set_zlabel('Recovered $\delta$')
+        
+        else:
+            print 'Error: supply kind 2D or 3D.'
+            raise NameError
         
         plt.title(header)
+
+        plt.show()
         
-        pltdir = paths.plots + self.detector + '/' + self.kind + '/' + pltType + '/'
-        pltname = self.detector + '_' + self.kind + '_' + sd.phase2(self.pdif) + '_' + pltType + extra_name
-        save_to = pltdir + pltname
+        if save:
+            pltdir = paths.plots + self.detector + '/detection/'
+            pltname = 'delta_' + self.detector + '_' + self.psr + '_' + sd.phase2(self.pdif) + '_' + kind + '_' + extra_name
+            save_to = pltdir + pltname
+            print 'Plot saved to:\n %(save_to)s' % locals()
         
-        try:
-            os.makedirs(pltdir)
-        except OSError:
-            pass
+            try:
+                os.makedirs(pltdir)
+            except OSError:
+                pass
             
-        plt.savefig(save_to, bbox_inches='tight')
-        plt.close()
+            plt.savefig(save_to, bbox_inches='tight')
+            
+            plt.close()
         
-        print 'Plot saved to:\n %(save_to)s' % locals()
+
+
+class Delta(object):
     
-        
-    def getstats(self, plot=False, store=True):
-        
-        lins = self.s.applymap(math.sqrt)
-        
-        for m in self.methods:
-            self.stats[m]['min inj det'] = psrplot.min_det_h(lins[m])
-            self.stats[m]['lin s slope'] = psrplot.lin_fit(lins[m])(1)
-            self.stats[m]['lin s noise'] = psrplot.noise_line(lins[m])(1)
-            self.stats[m]['lin s inter'] = psrplot.fit_intersect_noise(lins[m])
-            self.stats[m]['h rec noise'] = psrplot.noise_line(self.h[m])(1)
-            self.stats[m]['h rec slope'] = psrplot.lin_fit(self.h[m])(1)
-            self.stats[m]['h rec inter'] = psrplot.fit_intersect_noise(self.h[m])
-
-
-def chi(A, b):
-    # chi2 minimization through svd decomposition
-    svd = np.linalg.svd(A, full_matrices=False)
-
-    U = pd.DataFrame(svd[0], columns=A.columns, index=A.index)
-    W = pd.DataFrame(np.diag(1./svd[1]), index=A.columns, columns=A.columns)
-    V = pd.DataFrame(svd[2], index=A.columns, columns=A.columns)
-
-    cov = V.T.dot(W**2).dot(V)  # covariance matrix
-
-    VtW = V.T.dot(W)
-    # need to make U complex before dotting with b
-    Utb = (U + 0j).mul(b, axis=0).sum(axis=0)
-    a = VtW.dot(Utb.T)          # results
-    
-    return a, cov
-
-
-
-class InjSearch(object):
-    
-    def __init__(self, detector, psr, nfreq, pdif, nd, sweep=101, rangeparam=[], dinjrange=[1., 1.01], dsrchrange=[1., 1.01], hinjrange=[1.0E-27, 1.0E-23], filesize=100):
+    def __init__(self, detector='H1', psr='J0534+2200', ninj=8, h0=-25, pdif='p', nd=20, sweep=101, dinjrange=[1.-.01, 1.01], dsrchrange=[1.-.011, 1.011]):
         # system info
         self.detector = detector
         self.psr = psr
                 
         # data info
-        frange = [1.0e-7, 1.0e-5]
-        self.freq = np.linspace(frange[0], frange[1], nfreq)
-        print 'Getting background.'
-        self.background = Background(detector, psr, self.freq, filesize)
-        self.background.get()
+        self.data = Data(detector, psr)
+        self.data.get()
         
-        self.t = self.background.seed.finehet.index
+#         frange = [1.0e-7, 1.0e-5]
+#         self.freq = np.linspace(frange[0], frange[1], nfreq)
+#         print 'Getting background.'
+#         self.background = Background(detector, psr, self.freq, filesize=100)
+#         self.background.get()
+#         
+        self.t = self.data.finehet.index
         
-        sigma = Sigma(self.detector, self.psr, self.background.seed.finehet)
+        sigma = Sigma(self.detector, self.psr, self.data.finehet)
         self.sg = sigma.std
         
         # injection strengths
-        self.hinj = np.linspace(hinjrange[0], hinjrange[1], nfreq)
+        self.hinj = [10**(p) for p in range(h0, h0+ninj)]
         
         # injection deltas
         self.dinj = np.linspace(dinjrange[0], dinjrange[1], nd)
@@ -381,15 +386,15 @@ class InjSearch(object):
         self.injkind = 'GR'
         
         # set up injection
-        self.injection = templates.Signal(detector, psr, pdif, self.t)
-        self.setranges(rangeparam)
+        self.signal = templates.Signal(detector, psr, pdif, self.t)
+        self.setranges([])
         
         # search
         self.dsrch = np.linspace(dsrchrange[0], dsrchrange[1], sweep)
         
-        
+                
     def setranges(self, rangeparam):
-        src = self.injection.response.src
+        src = self.signal.response.src
         
         if rangeparam ==[]:
             print 'All parameters fixed.'
@@ -419,140 +424,175 @@ class InjSearch(object):
             self.phi0_range = [0., 0.]
     
     
-    def analyze(self):
-
-        print 'Analyzing %d files.' % self.background.nsets
-    
-        # search info
-        search = templates.Signal(self.detector, self.psr, self.pdif, self.t)
+    def recover(self, noisetype='s6', extra_name=''):
+        
+        # messages
+        print 'Recovering delta in Gaussian noise.'
+        print '\nDelta injections:'
+        print self.dinj
+        print '\nDelta search:'
+        print self.dsrch
+        print '\nInjection strengths:'
+        print self.hinj  
 
         # results
-        self.results = Results(self.detector, self.psr, dinj=self.dinj, hinj=self.hinj, pdif=self.pdif)
+        self.results = Results(self.detector, self.psr, self.dinj, self.hinj, pdif = self.pdif, extra_name=noisetype + extra_name)
             
-        # loop over files
-        for n in range(self.background.nsets):
+        # select injection psi and iota
+        psi  = random.uniform(self.pol_range[0], self.pol_range[1])
+        iota = random.uniform(self.inc_range[0], self.inc_range[1])  
+        phi0 = 0.0
+        
+        # form noise
+        if noisetype=='gaussian':
+            nlevel = 1.2e-23
+            noise = np.random.normal(scale=nlevel, size=len(self.t)) + 1j*np.random.normal(scale=nlevel, size=len(self.t))
+            print '\nUsing gaussian noise std: ' + str(nlevel)
             
-            try:
-                back_file = pd.HDFStore(self.background.path + str(n), 'r')
-                data = back_file[self.psr]
-            finally:
-                back_file.close()
-                
-            # loop over instantiations
-            for inst in data.columns:
-                
-                inst_number = int(n*self.background.filesize + inst)
-                
-                print '%i/%i ' % (inst_number, len(self.hinj)-1),
-                
-                # select search psi, iota and phi0
-                psi  = random.uniform(self.pol_range[0], self.pol_range[1])
-                iota = random.uniform(self.inc_range[0], self.inc_range[1])
-                
-                # select injection psi and iota
-                psi_inj  = random.uniform(self.pol_range[0], self.pol_range[1])
-                iota_inj = random.uniform(self.inc_range[0], self.inc_range[1])  
-                phi0 = random.uniform(self.phi0_range[0], self.phi0_range[1])
-                
-                # phi0 range to sweep over        
-#                 phi0_srch = np.linspace(self.phi0_range[0], self.phi0_range[1], 5)
-                
-                # select instantiation
-                d = data[inst]
+        elif noisetype == 's6':
+            noise = self.data.finehet
+            print '\nUsing LIGO S6 noise.'  
+        
+        # compare sigmas
+        plt.figure()
+        self.sg.plot(style='+')
+        plt.plot(self.t, [np.std(noise)]*len(self.t), color='r')
+        plt.title('Standard deviation comparison: S6 data vs. fabricated noise')
+        plt.xlabel('GPS time')
+        plt.ylabel('$\sigma$')
+        plt.savefig('files/plots/sigmacomp.png', bbox_inches='tight')
+        plt.show()
+        plt.close()
+        
 
-                h = self.hinj[inst_number]
-
-                if h != 0:
+        print '\nProcessing:'
+        
+        # process
+        for h in self.hinj:
+            print '\n' + str(h)
+        
+            for d_inj in self.dinj:
+            
+                print 'd = %(d_inj)f' % locals(),
+        
+                # inject signal
+                d = h * self.signal.simulate(d_inj, psi, iota, phase=0.0) + noise
                 
-                    for d_inj in self.dinj:
-                    
-                        print 'I! d = %(d_inj)f\t%(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
-                        
-                        # inject signal
-                        d += h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
-                        
-                        # search
-                        res = pd.Series(index=self.dsrch)
-                        for delta in self.dsrch:
-                        
-                            s = search.simulate(delta, psi_inj, iota_inj, phase=phi0)  
-                            
-                            res[delta] = abs(np.vdot(d, s))
-                            
-                        self.results.drec[d_inj][h] = res.index[np.argmax(res)]
+                # search
+                cor = []
+                for d_srch in self.dsrch:
+                    s = self.signal.simulate(d_srch, psi, iota, phase=0.0)  
 
-        ## Save
+                    cor += [abs(np.vdot(s, d))]
+                
+                self.results.delta[d_inj][h] = self.dsrch[np.argmax(cor)]
+                
         self.results.save()
 
 
-class Distribution(InjSearch):
+#     def certainty(self, h=1e-23, loops=100, 
+
+
+# class Distribution(InjSearch):
+#     
+#     def __init__(self):
+#         super(Distribution, self).__init__('H1', 'J0534+2200', 10, 0., 50)
+#         
+#     def analyze(self):
+# 
+#         print 'Getting matched filter distribution.'
+#     
+#         # search info
+#         search = templates.Signal(self.detector, self.psr, self.pdif, self.t)
+# 
+#         # results
+#         self.results = pd.DataFrame(columns=self.dinj, index=self.hinj)
+#             
+#         # loop over files
+#         for n in range(self.background.nsets):
+#             
+#             try:
+#                 back_file = pd.HDFStore(self.background.path + str(n), 'r')
+#                 data = back_file[self.psr]
+#             finally:
+#                 back_file.close()
+#                 
+#             # loop over instantiations
+#             for inst in data.columns:
+#                 
+#                 inst_number = int(n*self.background.filesize + inst)
+#                 
+#                 print '%i/%i ' % (inst_number, len(self.hinj)-1),
+#                 
+#                 
+#                 # select injection psi and iota
+#                 psi_inj  = random.uniform(self.pol_range[0], self.pol_range[1])
+#                 iota_inj = random.uniform(self.inc_range[0], self.inc_range[1])  
+#                 phi0 = random.uniform(self.phi0_range[0], self.phi0_range[1])
+#                 
+#                 # select instantiation
+# #                 d = data[inst]
+# #                 d = self.background.seed.finehet
+# #                 print d
+# 
+#                 nlevel = 1.5e-23
+#                 d = np.random.normal(scale=nlevel, size=len(self.t)) + 1j*np.random.normal(scale=nlevel, size=len(self.t))
+#                 
+#                 # compare sigmas
+#                 plt.figure()
+#                 self.sg.plot('+', label='Actual')
+#                 plt.plot(self.t, np.std(d), color='r', label='Fake')
+#                 plt.title('Standard deviation comparison: S6 data vs. fabricated noise')
+#                 plt.legend(numpoints=1)
+#                 plt.xlabel('GPS time')
+#                 plt.ylabel('$\sigma$')
+#                 plt.savefig('files/plots/sigmacomp.png', bbox_inches='tight')
+#                 plt.close()
+#                 
+#                 # search
+#                 h = self.hinj[inst_number]
+#                 
+#                 for d_inj in self.dinj:
+#                     print 'I! d = %(d_inj)f' % locals()
+#                     print 'gaussian noise!'
+#                 
+#                     # inject signal
+#                     d += h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=0.0)
+#                 
+#                     # search
+#                     res = []
+#                     for delta in self.dsrch:
+#                         print delta,
+#                         s = signal.simulate(delta, psi, iota, phase=0.0)  
+# 
+#                         res += [abs(np.vdot(s, d))]
+#                         
+#                     self.results[d_inj][h] = self.dsrch(np.argmax(res))
+#                         
+#                 # save
+#                 try:
+#                    self.results.to_pickle('files/analysis/results/distribution')
+#                 except:
+#                     print "Couldn't save!"
+
+
+def chi(A, b):
+    # chi2 minimization through svd decomposition
+    svd = np.linalg.svd(A, full_matrices=False)
+
+    U = pd.DataFrame(svd[0], columns=A.columns, index=A.index)
+    W = pd.DataFrame(np.diag(1./svd[1]), index=A.columns, columns=A.columns)
+    V = pd.DataFrame(svd[2], index=A.columns, columns=A.columns)
+
+    cov = V.T.dot(W**2).dot(V)  # covariance matrix
+
+    VtW = V.T.dot(W)
+    # need to make U complex before dotting with b
+    Utb = (U + 0j).mul(b, axis=0).sum(axis=0)
+    a = VtW.dot(Utb.T)          # results
     
-    def __init__(self):
-        super(Distribution, self).__init__('H1', 'J0534+2200', 10, 0., 50)
-        
-    def analyze(self):
+    return a, cov
 
-        print 'Getting matched filter distribution.'
-    
-        # search info
-        search = templates.Signal(self.detector, self.psr, self.pdif, self.t)
-
-        # results
-        self.results = pd.DataFrame(columns=self.dinj, index=self.dsrch)
-            
-        # loop over files
-        for n in range(self.background.nsets):
-            
-            try:
-                back_file = pd.HDFStore(self.background.path + str(n), 'r')
-                data = back_file[self.psr]
-            finally:
-                back_file.close()
-                
-            # loop over instantiations
-            for inst in data.columns:
-                
-                inst_number = int(n*self.background.filesize + inst)
-                
-                print '%i/%i ' % (inst_number, len(self.hinj)-1),
-                
-                
-                # select injection psi and iota
-                psi_inj  = random.uniform(self.pol_range[0], self.pol_range[1])
-                iota_inj = random.uniform(self.inc_range[0], self.inc_range[1])  
-                phi0 = random.uniform(self.phi0_range[0], self.phi0_range[1])
-                
-                # phi0 range to sweep over        
-#                 phi0_srch = np.linspace(self.phi0_range[0], self.phi0_range[1], 5)
-                
-                # select instantiation
-                d = data[inst]
-
-                h = self.hinj[inst_number]
-
-                if h == max(self.hinj):
-                
-                    for d_inj in self.dinj:
-                    
-                        print 'I! d = %(d_inj)f\t%(psi_inj)f %(iota_inj)f %(phi0)f' % locals()
-                        # print 'no noise!'
-                        
-                        # inject signal
-                        d += h * self.injection.simulate(d_inj, psi_inj, iota_inj, phase=phi0)
-                        
-                        # search
-                        res = pd.Series(index=self.dsrch)
-                        for delta in self.dsrch:
-                        
-                            s = search.simulate(delta, psi_inj, iota_inj, phase=phi0)  
-                            
-                            self.results[d_inj][delta] = abs(np.vdot(d, s))
-                            
-                # save
-                try:
-                   self.results.to_pickle('files/analysis/results/distribution')
-                except:
-                    print "Couldn't save!"
     
 
 ## SEARCH

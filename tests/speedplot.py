@@ -6,17 +6,18 @@ from sys import argv
 _, kind = argv
 
 # load results
+path = 'files/analysis/results/small_delta_gauss'
 try:
-    f = pd.HDFStore('files/analysis/results/speed', 'r')
-    
+    f = pd.HDFStore(path, 'r')
     results = f['crab']
     
 finally:
     f.close()
 
+# results = pd.read_pickle('files/analysis/results/highSignal')
+
 # setup axes
-h0 = [1e-27, 1.112e-24, 2.223e-24, 3.334e-24, 4.445e-24, 5.556e-24, 6.667e-24, 7.778e-24, 8.889e-24, 1e-23]
-results.index = h0
+h0 = results.index
 
 dinj = results.columns.tolist()
 
@@ -26,22 +27,27 @@ if kind  == '2D':
     # plot 2D
     plt.figure()
 
-    for h in h0:
-        plt.plot(dinj, results.ix[h], '+', label=str(h))
+    for h in h0[:7]:
+        plt.plot(dinj, results.ix[h], label=str(h))
     
-    plt.legend(numpoints=1,ncol=2)
 
     plt.xlim(min(dinj), max(dinj))
-    plt.ylim(min(dinj), max(dinj))
+#     plt.ylim(1.-.016, 1.011)#.98, 1.+.101)
+#     
+#     # search limits
+#     plt.plot(dinj, [1.+.1]*len(dinj), '--', color='.7')
+#     plt.plot(dinj, [1.-.015]*len(dinj), '--', color='.7')
+
+    plt.legend(numpoints=1,ncol=2, loc=4)
 
     plt.ylabel('Recovered $\delta$')
     plt.xlabel('Injected $\delta$')
 
-    plt.title('Recovered $\delta=c/c_{gw}$ for different injection strengths')
+    plt.title('Recovered $\delta=c/c_{gw}$ for different injection strengths\n(S6 H1 Crab noise std ~1e-23)')
     
     plt.show()
 
-#     plt.savefig('files/plots/detection/crab_H1_with_noise_2D_2.png', bbox_inches='tight')
+#     plt.savefig('files/plots/detection2/crab_H1_LIGO_noise_h-25-18_2D-line_smalld.png', bbox_inches='tight')
 
 elif kind == '3D':
     
@@ -58,10 +64,14 @@ elif kind == '3D':
         xLabel = ax.set_xlabel('$h_0$')
         yLabel = ax.set_ylabel('Injected $\delta$')
         zLabel = ax.set_zlabel('Recovered $\delta$')
+        
 
     plt.title('Recovered $\delta=c/c_{gw}$')
     
-    plt.savefig('files/plots/detection/crab_H1_with_noise_3D_2.png')
+#     plt.savefig('files/plots/detection2/crab_H1_with_noise_3D_2.png')
+    
+    plt.show()
+
         
 else:
     print 'Error: supply kind 2D or 3D.'
