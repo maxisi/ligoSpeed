@@ -697,7 +697,7 @@ class Signal(object):
             
             
     # Amplitude
-    def signalinfo(self, pdif, iota=[], p=0, h_s=0, pdif_s=0):
+    def signalinfo(self, pdif, iota=[], h_s=0):
         
         # determine inclination angle
         if iota==[]:
@@ -838,11 +838,11 @@ class Signal(object):
         d = pd.Series({'d' + str(n) : delta ** n for n in range(4)})
 
         dmP = self.dmP.mul(d)               # obtain phase design matrix
-        dmP['d0'] += 2. * phi0              # add phi0
+        dmP['d0'] = dmP['d0'] + 2. * phi0   # add phi0
         phi_t = dmP.sum(axis='columns')     # sum columns to obtain evolution
         return phi_t
            
-    def simulate(self, delta, pol_angle, incl_angle, phase=0, h_scalar=0, pdif_scalar=0, dontadd=False):
+    def simulate(self, delta, pol_angle, incl_angle, phi0=0, dontadd=False):
         '''
         Simulates a signal based given polarization and inclination angles.
         Includes phase evolution: delta = c/c_g
@@ -853,11 +853,11 @@ class Signal(object):
         if self.psi==pol_angle and self.iota==incl_angle and 'dmA' in dir(self):
             dm = self.dmA
         else:
-            self.design_matrix_amplitude(pol_angle, incl_angle, h_scalar=h_scalar)
+            self.design_matrix_amplitude(pol_angle, incl_angle)
             dm = self.dmA
 
         # construct phase evolution
-        phi_t = self.phase_ev(delta, phase)
+        phi_t = self.phase_ev(delta, phi0)
         
         # compute phase factor
         phase_factor = np.exp(1j*phi_t)

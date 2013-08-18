@@ -355,7 +355,7 @@ class Results(object):
 
 class Delta(object):
     
-    def __init__(self, detector='H1', psr='J0534+2200', ninj=8, h0=-25, pdif='p', nd=20, sweep=101, dinjrange=[1.-.01, 1.01], dsrchrange=[1.-.011, 1.011]):
+    def __init__(self, detector='H1', psr='J0534+2200', ninj=8, h0=-25, pdif='p', nd=20, sweep=101, dinj0=1., dinjd=.01):
         # system info
         self.detector = detector
         self.psr = psr
@@ -379,7 +379,7 @@ class Delta(object):
         self.hinj = [10**(p) for p in range(h0, h0+ninj)]
         
         # injection deltas
-        self.dinj = np.linspace(dinjrange[0], dinjrange[1], nd)
+        self.dinj = np.linspace(dinj0, dinj0+dinjd, nd)
         
         # injection kind   
         self.pdif = pdif
@@ -390,7 +390,7 @@ class Delta(object):
         self.setranges([])
         
         # search
-        self.dsrch = np.linspace(dsrchrange[0], dsrchrange[1], sweep)
+        self.dsrch = np.linspace(dinj0-.001, dinj0+dinjd+.001, sweep)
         
                 
     def setranges(self, rangeparam):
@@ -464,34 +464,109 @@ class Delta(object):
         plt.show()
         plt.close()
         
+        print 'Creating templates.'
+        
+        # create injection signals
+        sinj = {d_inj : self.signal.simulate(d_inj, psi, iota) for d_inj in self.dinj}
 
+        # create search signals
+        ssrch = {d_srch : self.signal.simulate(d_srch, psi, iota) for d_srch in self.dsrch}
+        
+        
         print '\nProcessing:'
         
         # process
         for h in self.hinj:
-            print '\n' + str(h)
+            print h,
         
             for d_inj in self.dinj:
             
-                print 'd = %(d_inj)f' % locals(),
-        
                 # inject signal
-                d = h * self.signal.simulate(d_inj, psi, iota, phase=0.0) + noise
+                d = h * sinj[d_inj] + noise
                 
                 # search
                 cor = []
                 for d_srch in self.dsrch:
-                    s = self.signal.simulate(d_srch, psi, iota, phase=0.0)  
-
-                    cor += [abs(np.vdot(s, d))]
+                    cor += [abs(np.vdot(ssrch[d_srch], d))]
                 
                 self.results.delta[d_inj][h] = self.dsrch[np.argmax(cor)]
-                
+        
+        print '\n'
+               
         self.results.save()
 
 
-#     def certainty(self, h=1e-23, loops=100, 
+    def confidence(self, noisetype='s6', h=1e-23, loops=100):
+        
+        # results
+        self.results = pd.DataFrame(index=range(loops), columns=self.dinj)
+        
+        # select injection psi and iota
+        psi  = random.uniform(self.pol_range[0], self.pol_range[1])
+        iota = random.uniform(self.inc_range[0], self.inc_range[1])  
+                
+        print 'Obtaining uncertainty range for h0 = ' + str(h)
+        self.hinj = [h] * loops
 
+        nlevel = 1.2e-23
+        
+        print 'Creating templates.'
+        
+        # create injection signals
+        sinj = {d_inj : self.signal.simulate(d_inj, psi, iota) for d_inj in self.dinj}
+
+        # create search signals
+        ssrch = {d_srch : self.signal.simulate(d_srch, psi, iota) for d_srch in self.dsrch}
+        
+        # analyze
+        for n in range(loops):
+
+            print n
+            
+            noise = np.random.normal(scale=nlevel, size=len(self.t)) + 1j*np.random.normal(scale=nlevel, size=len(self.t))
+        
+            for d_inj in self.dinj:
+            
+                # inject signal
+                d = h * sinj[d_inj] + noise
+                
+                # search
+                cor = []
+                for d_srch in self.dsrch:
+                    cor += [abs(np.vdot(ssrch[d_srch], d))]
+                
+                self.results[d_inj][n] = self.dsrch[np.argmax(cor)]
+        
+        # histogram
+        self.variation = self.results - self.dinj
+        
+        plt.figure()
+        
+        self.variation.hist(sharex=True, sharey=True, xrot=90., figsize=(12.,8.))
+        
+        path = paths.plots + 'confidence/' + self.detector + '/'
+        
+        try:
+            os.makedirs()
+        except:
+            pass
+        
+        plt.suptitle('$\delta$ recovery residuals for $h_0=' + str(h) + '$ in gaussian noise for ' + str(loops) + ' iterations\n(a residual of 0 means $\delta{inj}=\delta_{rec}$')
+        
+        plt.savefig(path + 'residuals_' + str(h), bbox_inches='tight')
+        plt.close()
+        
+        plt.figure()
+        
+        # overall distance
+        self.distance = np.sqrt((self.variation**2).sum(axis=1))
+        self.distance.hist(bins=10)
+        plt.title('Distance between $\delta_{rec}$ and $\delta_{inj}$ for $h_0=' + str(h) + '$\nin gaussian noise over ' + str(loops) + ' iterations and $\delta_{inj} \in [' + str(min(self.dinj)) + ',' + str(max(self.dinj)) + ']$')
+        plt.xlabel('Euclidean distance')
+        plt.ylabel('Count')
+        plt.savefig(path + 'distance_' + str(h), bbox_inches='tight')
+        plt.close()
+                    
 
 # class Distribution(InjSearch):
 #     
