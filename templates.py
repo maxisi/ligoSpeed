@@ -668,7 +668,7 @@ class Signal(object):
     of polarization and inclination angles.
     '''
 
-    def __init__(self, detector, psr, pdif, t, kind='GR', isloaded=False):
+    def __init__(self, detector, psr, pdif, t, kind='GR', load=True):
     
         # source and detector information
         self.detector = detector
@@ -683,10 +683,11 @@ class Signal(object):
         self.basis = sd.aps[kind]
         self.pdif = sd.phase(pdif)
         
-        # get antenna patterns
-        self.response = Response(psr, detector, t, kind, loadvectors=True)
-        # compute roemer delay
-        self.getroemer(self, self.response.obs.t)
+        if load:
+            # get antenna patterns
+            self.response = Response(psr, detector, t, kind, loadvectors=True)
+            # compute roemer delay
+            self.getroemer(self, self.response.obs.t)
         
         # parameters
         self.psi = 0

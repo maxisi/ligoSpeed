@@ -539,30 +539,30 @@ class Delta(object):
         
         # histogram
         self.variation = self.results - self.dinj
-        
-        plt.figure()
-        
-        self.variation.hist(sharex=True, sharey=True, xrot=90., figsize=(12.,8.))
-        
-        path = paths.plots + 'confidence/' + self.detector + '/'
+#         
+#         plt.figure()
+#         
+#         self.variation.hist(sharex=True, sharey=True, xrot=90., figsize=(12.,8.))
+#         
+        path = paths.plots + self.detector + '/' + 'confidence/'
         
         try:
-            os.makedirs()
+            os.makedirs(path)
         except:
             pass
-        
-        plt.suptitle('$\delta$ recovery residuals for $h_0=' + str(h) + '$ in gaussian noise for ' + str(loops) + ' iterations\n(a residual of 0 means $\delta{inj}=\delta_{rec}$')
-        
-        plt.savefig(path + 'residuals_' + str(h), bbox_inches='tight')
-        plt.close()
-        
-        plt.figure()
+#         
+#         plt.suptitle('$\delta$ recovery residuals for $h_0=' + str(h) + '$ in gaussian noise for ' + str(loops) + ' iterations\n(a residual of 0 means $\delta{inj}=\delta_{rec}$')
+#         
+#         plt.savefig(path + 'residuals_' + str(h), bbox_inches='tight')
+#         plt.close()
+#         
+#         plt.figure()
         
         # overall distance
-        self.distance = np.sqrt((self.variation**2).sum(axis=1))
+        self.distance = np.sqrt((self.variation**2).sum(axis=1))/np.sqrt(loops)
         self.distance.hist(bins=10)
         plt.title('Distance between $\delta_{rec}$ and $\delta_{inj}$ for $h_0=' + str(h) + '$\nin gaussian noise over ' + str(loops) + ' iterations and $\delta_{inj} \in [' + str(min(self.dinj)) + ',' + str(max(self.dinj)) + ']$')
-        plt.xlabel('Euclidean distance')
+        plt.xlabel('RMSE')
         plt.ylabel('Count')
         plt.savefig(path + 'distance_' + str(h), bbox_inches='tight')
         plt.close()
